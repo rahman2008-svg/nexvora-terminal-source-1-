@@ -43,14 +43,14 @@ jobs:
         if: failure()
         run: scripts/ci-explain-failure.sh build.log
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: DEVTEST-NOT-FOR-DISTRIBUTION-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: devtest-build-logs
@@ -97,7 +97,7 @@ jobs:
         run: scripts/ci-explain-failure.sh build.log
 
       # Only a compatible bootstrap may produce a downloadable production-ID APK.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.bs.outcome == 'success'
         with:
           name: nexvora-terminal-debug-production-id
