@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ system splash: deep black background (the layer-list window background is ignored there). -->
+    <style name="Theme.NexVora.Splash" parent="Theme.NexVora">
+        <item name="android:windowSplashScreenBackground">@color/nexvora_black</item>
+    </style>
+</resources>

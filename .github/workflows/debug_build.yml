@@ -1,0 +1,108 @@
+name: NexVora Terminal - Debug builds
+
+# Two clearly separated configurations:
+#   devtest    : applicationId com.termux           + OFFICIAL bootstrap -> working shell, LOCAL TESTING ONLY
+#   production : applicationId com.nexvora.terminal -> compile + bootstrap-compatibility check only.
+#                No APK is uploaded unless the bootstrap passes the compatibility check.
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: debug-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  devtest:
+    name: Development Test (com.termux, NOT for distribution)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nexvora-build
+
+      - name: Switch to devtest application ID (workspace only)
+        run: scripts/set-app-id.sh com.termux
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee build.log
+
+      - name: Verify APK exists
+        run: |
+          ls -l app/build/outputs/apk/debug/
+          test -n "$(ls app/build/outputs/apk/debug/DEVTEST-NOT-FOR-DISTRIBUTION_*.apk)"
+
+      - name: Explain failure
+        if: failure()
+        run: scripts/ci-explain-failure.sh build.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DEVTEST-NOT-FOR-DISTRIBUTION-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: devtest-build-logs
+          path: |
+            build.log
+            **/build/reports/**
+          if-no-files-found: ignore
+
+  production-check:
+    name: Production config (com.nexvora.terminal) compile + bootstrap check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nexvora-build
+
+      - name: Validate package ID consistency
+        run: scripts/validate-package-id.sh com.nexvora.terminal
+
+      - name: Build debug APK (compile check)
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee build.log
+
+      - name: Bootstrap compatibility report
+        id: bs
+        continue-on-error: true
+        run: |
+          rc=0
+          {
+            echo "### Bootstrap compatibility for com.nexvora.terminal"
+            echo '```'
+            for z in app/src/main/cpp/bootstrap-*.zip; do
+              echo "== $z"; scripts/verify-bootstrap.sh "$z" com.nexvora.terminal || rc=1
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Explain failure
+        if: failure()
+        run: scripts/ci-explain-failure.sh build.log
+
+      # Only a compatible bootstrap may produce a downloadable production-ID APK.
+      - uses: actions/upload-artifact@v4
+        if: steps.bs.outcome == 'success'
+        with:
+          name: nexvora-terminal-debug-production-id
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: No APK published
+        if: steps.bs.outcome != 'success'
+        run: echo "::warning::Bootstrap is not compatible with com.nexvora.terminal - compile check done, APK intentionally NOT uploaded (the shell would not start)."

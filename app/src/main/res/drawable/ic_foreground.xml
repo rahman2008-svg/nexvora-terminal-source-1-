@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:height="108dp"
+    android:width="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- NexVora launcher mark: cyan prompt chevron + purple cursor. Keep in sync with nexvora_splash.xml -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M32,36 h8 l14,18 l-14,18 h-8 l14,-18 z" />
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M58,66 h20 v6 h-20 z" />
+</vector>

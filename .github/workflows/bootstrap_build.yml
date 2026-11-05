@@ -1,0 +1,71 @@
+name: NexVora - Build custom bootstrap (EXPERIMENTAL, UNVERIFIED)
+
+# Builds a Termux bootstrap whose prefix is /data/data/com.nexvora.terminal/files/usr using the upstream
+# termux-packages build system. Steps follow the upstream wiki ("For maintainers", "Building packages",
+# "Termux execution environment") and issue termux-packages#24396. It has NOT been run yet: the first run
+# will probably need adjustments (runner disk space, time limits, termux-tools). Every assumption is
+# guarded by an assert so it fails loudly instead of producing a bad bootstrap.
+# Upstream reports that building packages for a custom name takes hours per architecture.
+
+on:
+  workflow_dispatch:
+    inputs:
+      architectures:
+        description: "Comma separated, passed to build-bootstraps.sh --architectures"
+        default: "aarch64"
+      termux_packages_ref:
+        description: "termux-packages git ref (pin a commit for reproducibility)"
+        default: "master"
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    env:
+      APP_ID: com.nexvora.terminal
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk/ndk /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Clone termux-packages
+        run: git clone https://github.com/termux/termux-packages.git tp && git -C tp checkout "${{ inputs.termux_packages_ref }}" && git -C tp log -1 --format=%H | tee tp-commit.txt
+
+      - name: Set TERMUX_APP__PACKAGE_NAME in scripts/properties.sh
+        working-directory: tp
+        run: |
+          grep -nE '^TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh || { echo "::error::TERMUX_APP__PACKAGE_NAME assignment not found - upstream changed; update this workflow from the current wiki."; exit 1; }
+          sed -i -E "s|^TERMUX_APP__PACKAGE_NAME=.*|TERMUX_APP__PACKAGE_NAME=\"$APP_ID\"|" scripts/properties.sh
+          grep -nE '^TERMUX_APP__PACKAGE_NAME=|^TERMUX_APP__DATA_DIR=' scripts/properties.sh
+          grep -q "TERMUX_APP__PACKAGE_NAME=\"$APP_ID\"" scripts/properties.sh
+
+      - name: Clean (required after a package-name change)
+        working-directory: tp
+        run: ./scripts/run-docker.sh ./clean.sh
+
+      - name: Build bootstrap from local package sources
+        working-directory: tp
+        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures "${{ inputs.architectures }}" 2>&1 | tee ../bootstrap-build.log
+
+      - name: Collect and verify archives
+        run: |
+          mkdir -p out
+          find tp -maxdepth 3 -name 'bootstrap-*.zip' -exec cp -v {} out/ \;
+          ls out/*.zip
+          fail=0
+          for z in out/*.zip; do scripts/verify-bootstrap.sh "$z" "$APP_ID" || fail=1; done
+          exit $fail
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nexvora-bootstrap
+          path: |
+            out/*.zip
+            bootstrap-build.log
+            tp-commit.txt

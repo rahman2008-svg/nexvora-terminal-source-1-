@@ -1,0 +1,71 @@
+name: NexVora Terminal - Production release
+
+# PRODUCTION ONLY (com.nexvora.terminal). Requires:
+#  * a GitHub release in this repo that holds bootstrap-{aarch64,arm,i686,x86_64}.zip built for
+#    /data/data/com.nexvora.terminal/files/usr (see bootstrap_build.yml and docs/BOOTSTRAP_REPORT.md)
+#  * signing secrets: NEXVORA_KEYSTORE_BASE64, NEXVORA_KEYSTORE_PASSWORD, NEXVORA_KEY_ALIAS, NEXVORA_KEY_PASSWORD
+# The Gradle task verifyNexVoraBootstrap fails the build if the bootstrap still targets com.termux.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_release_tag:
+        description: "Release tag in this repo that contains the custom bootstrap zips"
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nexvora-build
+
+      - name: Require signing secrets
+        env:
+          KS: ${{ secrets.NEXVORA_KEYSTORE_BASE64 }}
+        run: |
+          [ -n "$KS" ] || { echo "::error::NEXVORA_KEYSTORE_BASE64 is not set. Production releases must use NexVora's own signing key."; exit 1; }
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/nexvora-release.jks"
+          echo "NEXVORA_KEYSTORE_FILE=$RUNNER_TEMP/nexvora-release.jks" >> "$GITHUB_ENV"
+
+      - name: Validate package ID consistency
+        run: scripts/validate-package-id.sh com.nexvora.terminal
+
+      - name: Download custom bootstrap archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p bootstrap-custom
+          gh release download "${{ inputs.bootstrap_release_tag }}" -p 'bootstrap-*.zip' -D bootstrap-custom
+          ls -l bootstrap-custom
+          for a in aarch64 arm i686 x86_64; do test -f bootstrap-custom/bootstrap-$a.zip || { echo "::error::missing bootstrap-$a.zip"; exit 1; }; done
+          for z in bootstrap-custom/*.zip; do scripts/verify-bootstrap.sh "$z" com.nexvora.terminal; done
+          echo "NEXVORA_BOOTSTRAP_DIR=$PWD/bootstrap-custom" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          NEXVORA_KEYSTORE_PASSWORD: ${{ secrets.NEXVORA_KEYSTORE_PASSWORD }}
+          NEXVORA_KEY_ALIAS: ${{ secrets.NEXVORA_KEY_ALIAS }}
+          NEXVORA_KEY_PASSWORD: ${{ secrets.NEXVORA_KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleRelease 2>&1 | tee build.log
+
+      - name: Explain failure
+        if: failure()
+        run: scripts/ci-explain-failure.sh build.log
+
+      - name: Checksums
+        run: cd app/build/outputs/apk/release && sha256sum *.apk > SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexvora-terminal-release
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/SHA256SUMS.txt

@@ -1,0 +1,33 @@
+name: Set up NexVora build environment
+description: JDK 17, Android SDK platform 36 / build-tools 36.0.0 / pinned NDK, Gradle cache
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Read pinned NDK version
+      id: ndk
+      shell: bash
+      run: echo "version=$(grep '^ndkVersion=' gradle.properties | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Android NDK
+      id: ndk-cache
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/lib/android/sdk/ndk/${{ steps.ndk.outputs.version }}
+        key: android-ndk-${{ steps.ndk.outputs.version }}-${{ runner.os }}
+
+    - name: Install Android SDK components
+      shell: bash
+      run: |
+        SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        yes | "$SDKM" --licenses > /dev/null || true
+        PKGS=("platforms;android-36" "build-tools;36.0.0")
+        if [ "${{ steps.ndk-cache.outputs.cache-hit }}" != "true" ]; then PKGS+=("ndk;${{ steps.ndk.outputs.version }}"); fi
+        "$SDKM" "${PKGS[@]}"
+
+    - name: Set up Gradle (dependency caching)
+      uses: gradle/actions/setup-gradle@v4

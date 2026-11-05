@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/nexvora_black"/>
+    <item
+        android:width="144dp"
+        android:height="144dp"
+        android:gravity="center">
+        <vector
+            android:width="144dp"
+            android:height="144dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <path android:fillColor="#00E5FF" android:pathData="M32,36 h8 l14,18 l-14,18 h-8 l14,-18 z" />
+            <path android:fillColor="#8B5CF6" android:pathData="M58,66 h20 v6 h-20 z" />
+        </vector>
+    </item>
+</layer-list>

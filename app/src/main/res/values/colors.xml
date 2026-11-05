@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- NexVora brand palette -->
+    <color name="nexvora_black">#FF050507</color>
+    <color name="nexvora_surface">#FF0D0D14</color>
+    <color name="nexvora_surface_variant">#FF161622</color>
+    <color name="nexvora_stroke">#FF26263A</color>
+    <color name="nexvora_cyan">#FF00E5FF</color>
+    <color name="nexvora_purple">#FF8B5CF6</color>
+    <color name="nexvora_text_primary">#FFECECF4</color>
+    <color name="nexvora_text_secondary">#FF9A9AB5</color>
+</resources>

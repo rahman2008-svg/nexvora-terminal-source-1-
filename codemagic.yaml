@@ -1,0 +1,71 @@
+# NexVora Terminal - Codemagic build configuration (same two configurations as GitHub Actions)
+#   nexvora-devtest     : applicationId com.termux (official bootstrap)  -> LOCAL TESTING ONLY, never distribute
+#   nexvora-production  : applicationId com.nexvora.terminal + custom bootstrap + own signing key
+# Production needs: Android keystore with reference "nexvora_keystore" and the env var
+# NEXVORA_BOOTSTRAP_BASE_URL (HTTPS directory holding bootstrap-{aarch64,arm,i686,x86_64}.zip built for com.nexvora.terminal).
+definitions:
+  scripts:
+    - &setup_android |
+      NDK="$(grep '^ndkVersion=' gradle.properties | cut -d= -f2)"
+      yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+      "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK" "platforms;android-36" "build-tools;36.0.0"
+      echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+
+workflows:
+  nexvora-devtest:
+    name: NexVora DEVTEST (com.termux) - not for distribution
+    instance_type: linux_x2
+    max_build_duration: 60
+    environment:
+      java: 17
+      vars:
+        TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: "0"
+    cache:
+      cache_paths:
+        - $HOME/.gradle/caches
+    scripts:
+      - name: Set up Android SDK/NDK
+        script: *setup_android
+      - name: Switch to devtest application ID
+        script: scripts/set-app-id.sh com.termux
+      - name: Build debug APK
+        script: ./gradlew --stacktrace assembleDebug
+    artifacts:
+      - app/build/outputs/apk/debug/DEVTEST-NOT-FOR-DISTRIBUTION_*.apk
+
+  nexvora-production:
+    name: NexVora PRODUCTION (com.nexvora.terminal)
+    instance_type: linux_x2
+    max_build_duration: 90
+    environment:
+      java: 17
+      android_signing:
+        - nexvora_keystore
+      vars:
+        TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS: "0"
+    cache:
+      cache_paths:
+        - $HOME/.gradle/caches
+    scripts:
+      - name: Set up Android SDK/NDK
+        script: *setup_android
+      - name: Validate package ID
+        script: scripts/validate-package-id.sh com.nexvora.terminal
+      - name: Fetch custom bootstrap archives
+        script: |
+          : "${NEXVORA_BOOTSTRAP_BASE_URL:?set NEXVORA_BOOTSTRAP_BASE_URL}"
+          mkdir -p bootstrap-custom
+          for a in aarch64 arm i686 x86_64; do
+            curl -fsSL "$NEXVORA_BOOTSTRAP_BASE_URL/bootstrap-$a.zip" -o "bootstrap-custom/bootstrap-$a.zip"
+            scripts/verify-bootstrap.sh "bootstrap-custom/bootstrap-$a.zip" com.nexvora.terminal
+          done
+      - name: Build release APK
+        script: |
+          export NEXVORA_BOOTSTRAP_DIR="$PWD/bootstrap-custom"
+          export NEXVORA_KEYSTORE_FILE="$CM_KEYSTORE_PATH"
+          export NEXVORA_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
+          export NEXVORA_KEY_ALIAS="$CM_KEY_ALIAS"
+          export NEXVORA_KEY_PASSWORD="$CM_KEY_PASSWORD"
+          ./gradlew --stacktrace assembleRelease
+    artifacts:
+      - app/build/outputs/apk/release/*.apk
