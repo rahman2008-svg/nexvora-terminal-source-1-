@@ -61,7 +61,7 @@ jobs:
           for z in out/*.zip; do scripts/verify-bootstrap.sh "$z" "$APP_ID" || fail=1; done
           exit $fail
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: nexvora-bootstrap
