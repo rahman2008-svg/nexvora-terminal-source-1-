@@ -1,0 +1,106 @@
+name: NexVora Terminal - Build Production APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      architectures:
+        description: "Android architectures"
+        required: true
+        default: "aarch64"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexvora-production-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build NexVora Terminal APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      APP_ID: com.nexvora.terminal
+      TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS: "0"
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Clone Termux packages
+        run: |
+          git clone https://github.com/termux/termux-packages.git tp
+          git -C tp log -1 --format=%H > tp-commit.txt
+
+      - name: Configure custom package ID
+        working-directory: tp
+        run: |
+          grep -n '^TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh
+          sed -i -E "s|^TERMUX_APP__PACKAGE_NAME=.*|TERMUX_APP__PACKAGE_NAME=\"$APP_ID\"|" scripts/properties.sh
+          grep -q "TERMUX_APP__PACKAGE_NAME=\"$APP_ID\"" scripts/properties.sh
+
+      - name: Clean package build
+        working-directory: tp
+        run: ./scripts/run-docker.sh ./clean.sh
+
+      - name: Build custom bootstrap
+        working-directory: tp
+        run: |
+          set -o pipefail
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
+            --architectures "${{ inputs.architectures }}" \
+            2>&1 | tee ../bootstrap-build.log
+
+      - name: Verify custom bootstrap
+        run: |
+          mkdir -p out
+          find tp -maxdepth 3 -name 'bootstrap-*.zip' -exec cp -v {} out/ \;
+          test -n "$(find out -name 'bootstrap-*.zip' -print -quit)"
+          for z in out/bootstrap-*.zip; do
+            scripts/verify-bootstrap.sh "$z" "$APP_ID"
+          done
+          echo "NEXVORA_BOOTSTRAP_DIR=$PWD/out" >> "$GITHUB_ENV"
+
+      - name: Setup Android build environment
+        uses: ./.github/actions/setup-nexvora-build
+
+      - name: Validate application ID
+        run: scripts/validate-package-id.sh com.nexvora.terminal
+
+      - name: Build production-ID debug APK
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleDebug 2>&1 | tee build.log
+
+      - name: Verify APK
+        run: |
+          mkdir -p final-apk
+          find app/build/outputs/apk/debug -name '*.apk' -exec cp -v {} final-apk/ \;
+          test -n "$(find final-apk -name '*.apk' -print -quit)"
+          ls -lh final-apk/
+
+      - name: Upload NexVora APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexVora-Terminal-Production-APK
+          path: final-apk/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NexVora-Terminal-Build-Logs
+          path: |
+            bootstrap-build.log
+            build.log
+            tp-commit.txt
+          if-no-files-found: ignore
